@@ -1,7 +1,8 @@
 """
-python tdtopspd2.py BO-02_Sonic.ascii --dtcols 0 1 --slowness --headerlines 28
-python tdtopspd2.py BO-02_Sonic.ascii --dtcols 0 1 --slowness --headerlines 28 --zrange 0 1200 2200
-python tdtopspd2.py BO-02_TD.ascii --dtcols 2 3  --headerlines 14 --dtmultiplier -1 -0.0005
+python welltdf.py BO-02_Sonic.ascii --dtcols 0 1 --slowness --headerlines 28
+python welltdf.py BO-02_Sonic.ascii --dtcols 0 1 --slowness --headerlines 28 --zrange 0 1200 2200
+python welltdf.py BO-02_TD.ascii --dtcols 2 3  --headerlines 14 --dtmultiplier -1 -0.0005
+python welltdf.py BO-02_TD.ascii --dtcols 2 3  --headerlines 14 --dtmultiplier -1 -0.0005 --hideplot
 """
 
 import os.path
@@ -133,7 +134,7 @@ def peval(t,p):
     z = (t * p[1] + (t**2) * p[0])
     return z
 
-def plot_df(zpindf,dirsplit,fname,hideplot=False):
+def plot_df(zpindf,dirsplit,fname,wname,hideplot=False):
     fig,ax = plt.subplots(1,2,figsize=(8,7))
     ax[0].invert_yaxis()
     ax[0].plot(zpindf['T1W'],zpindf['Z'],c='r',label='Actual')
@@ -148,6 +149,7 @@ def plot_df(zpindf,dirsplit,fname,hideplot=False):
     ax[1].plot(zpindf['VILWZ'],zpindf['Z'],lw=2,c='g',label='LWZ')
     ax[1].legend()
     ax[1].set_xlabel('VI in m/sec')
+    fig.suptitle(wname)
     fig.tight_layout()
 
     pdfcl = os.path.join(dirsplit,fname) + ".pdf"
@@ -176,9 +178,11 @@ def getcommandline():
         help='tops are in depth or t2w. dfv= depth')
     parser.add_argument('--topsmultshift',type=float,nargs=2,default=(1.0,0.0),
         help='Tops mutliplier and shift')
-    parser.add_argument('--wellname',default='WELL',help='Well name column, dfv=WELL')
+    parser.add_argument('--wellname',default='WELL XXX',help='Well name column, dfv=WELL XXX')
     parser.add_argument('--xycoords',nargs=2,default=(664055.00,2889245.00), type=float,
         help='X Y coordinates of well.dfv=664055.00 ,2889245.00')
+    parser.add_argument('--listcoef',action='store_true',default=False,
+        help='simple list of computed coefficients')
     parser.add_argument('--zrange',nargs=3, type=float,default=[0,0.0,0.0],
         help='Depth range to fit functions and plot. Expected 0/1 zmin zmax values. dfv= 0 0 0')
     parser.add_argument('--listdatain',action='store_true',default=False,help='List input data')
@@ -208,6 +212,7 @@ def main():
 
     dirsplit,fextsplit = os.path.split(cmdl.datafilename)
     fname,fextn = os.path.splitext(fextsplit)
+    cfname = 'allcoef.csv'
 
     if cmdl.slowness:
         zpinsonic = pd.read_csv(cmdl.datafilename,usecols=cmdl.dtcols,header=0,names=['Z','DTC'],
@@ -240,12 +245,14 @@ def main():
 
         if cmdl.zrange[0]:
             zpinsonicx = zpinsonic[(zpinsonic['Z'] >= cmdl.zrange[1]) & (zpinsonic['Z'] <= cmdl.zrange[2])]
-            plot_df(zpinsonicx,dirsplit,fname,cmdl.hideplot)
+            pltfname = fname + f'{cmdl.zrange[1]:.0f}_{cmdl.zrange[2]:.0f}' + 'slw'
+            plot_df(zpinsonicx,dirsplit,pltfname,cmdl.wellname,cmdl.hideplot)
             ztfname = fname + f'{cmdl.zrange[1]:.0f}_{cmdl.zrange[2]:.0f}_ztvix.csv'
             zpinsonicx.to_csv(ztfname,index=False)
             print(f'Successfully saved {ztfname}')
         else:
-            plot_df(zpinsonic,dirsplit,fname,cmdl.hideplot)
+            pltfname = fname + 'td'
+            plot_df(zpinsonic,dirsplit,pltfname,cmdl.wellname,cmdl.hideplot)
             ztfname = fname + 'ztvi.csv'
             zpinsonic.to_csv(ztfname,index=False)
             print(f'Successfully saved {ztfname}')
@@ -282,15 +289,33 @@ def main():
 
         if cmdl.zrange[0]:
             zpinx = zpin[(zpin['Z'] >= cmdl.zrange[1]) & (zpin['Z'] <= cmdl.zrange[2])]
-            plot_df(zpinx,dirsplit,fname,cmdl.hideplot)
+            pltfname = fname + f'{cmdl.zrange[1]:.0f}_{cmdl.zrange[2]:.0f}' + 'td'
+            plot_df(zpinx,dirsplit,pltfname,cmdl.wellname,cmdl.hideplot)
             ztfname = fname + f'{cmdl.zrange[1]:.0f}_{cmdl.zrange[2]:.0f}_ztvix.csv'
             zpinx.to_csv(ztfname,index=False)
             print(f'Successfully saved {ztfname}')
         else:
-            plot_df(zpin,dirsplit,fname,cmdl.hideplot)
+            pltfname = fname + 'td'
+            plot_df(zpin,dirsplit,pltfname,cmdl.wellname,cmdl.hideplot)
             ztfname = fname + 'ztvi.csv'
             zpin.to_csv(ztfname,index=False)
             print(f'Successfully saved {ztfname}')
+
+    if not os.path.isfile(cfname):
+        fo = open(cfname,'a+')
+        headlist = ['Well','X','Y','QA0','QA1','QA2','LSQRQA0','LSQRQA1','LSQRQA2']
+        print(','.join(headlist),file=fo)
+        cflist = [f'{cmdl.wellname}',f'{cmdl.xycoords[0]:.2f}',f'{cmdl.xycoords[1]:.2f}',f'{tzcoef[2]:.2f}',
+        f'{tzcoef[1]:.2f}',f'{tzcoef[0]:.2f}',f'{plsq[0][2]:.2f}',f'{plsq[0][1]:.2f}',f'{plsq[0][0]:.2f}']
+        print(','.join(cflist),file=fo)
+    else:
+        fo = open(cfname,'a+')
+        cflist = [f'{cmdl.wellname}',f'{cmdl.xycoords[0]:.2f}',f'{cmdl.xycoords[1]:.2f}',f'{tzcoef[2]:.2f}',
+        f'{tzcoef[1]:.2f}',f'{tzcoef[0]:.2f}',f'{plsq[0][2]:.2f}',f'{plsq[0][1]:.2f}',f'{plsq[0][0]:.2f}']
+        print(','.join(cflist),file=fo)
+
+    fo.close()
+    print(f'Successfully wrote to {cfname}')
 
 if __name__ == '__main__':
     main()
