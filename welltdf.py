@@ -3,6 +3,9 @@ python welltdf.py BO-02_Sonic.ascii --dtcols 0 1 --slowness --headerlines 28
 python welltdf.py BO-02_Sonic.ascii --dtcols 0 1 --slowness --headerlines 28 --zrange 0 1200 2200
 python welltdf.py BO-02_TD.ascii --dtcols 2 3  --headerlines 14 --dtmultiplier -1 -0.0005
 python welltdf.py BO-02_TD.ascii --dtcols 2 3  --headerlines 14 --dtmultiplier -1 -0.0005 --hideplot
+python welltdf.py BO-02_TD.ascii --dtcols 2 3 --headerlines 14 --dtmultiplier -1 -0.0005 --zrange 1 0 1510
+python welltdf.py BO-02_TD.ascii --dtcols 2 3 --headerlines 14 --dtmultiplier -1 -0.0005 --qcfcorrection 1 1.32766637  0.9283177
+
 """
 
 import os.path
@@ -172,19 +175,24 @@ def getcommandline():
     parser.add_argument('--nulval',type=float,default='-999.25000',help='Null value in sonic log. dfv= -999.25000')
     parser.add_argument('--dtshift',type=float, default=(0,0),nargs=2,help='depth shift time shift in ms, dfv = 0 0')
     parser.add_argument('--dtmultiplier',type=float,nargs=2,default=(1.0,1.0),help='depth and time multipliers')
+    parser.add_argument('--zrange',nargs=3, type=float,default=[0,0.0,0.0],
+        help='Depth range to fit functions and plot. Expected 0/1 zmin zmax values. dfv= 0 0 0')
+    parser.add_argument('--qcfcorrection',nargs='+',default=[0,1,1],type=float,
+        help='Input ratio to apply to quadratic coef. Used to adjust quad coef from shallow  to deep.')
+    # qcfcorrection 0 0 0 means no correction to apply
+    # 1 1.3 0.9 means apply correction to quadratic of least squares, only a2 and a1 is supplied, no a0
+    # 2 1.3 0.9 1.5 means apply correction to quadratic with 3 coefs, a2, a1, a0
     parser.add_argument('--topsfilename',help='file name with 2 columns, depth and tops')
     parser.add_argument('--topcols',nargs=2,type=int,default=(0,1),help='columns of depth and top,dfv= 0 1')
     parser.add_argument('--topsin',choices=['time','depth'],default='depth',
         help='tops are in depth or t2w. dfv= depth')
     parser.add_argument('--topsmultshift',type=float,nargs=2,default=(1.0,0.0),
         help='Tops mutliplier and shift')
-    parser.add_argument('--wellname',default='WELL XXX',help='Well name column, dfv=WELL XXX')
+    parser.add_argument('--wellname',default='WELL-XXX',help='Well name column, dfv=WELL-XXX')
     parser.add_argument('--xycoords',nargs=2,default=(664055.00,2889245.00), type=float,
         help='X Y coordinates of well.dfv=664055.00 ,2889245.00')
     parser.add_argument('--listcoef',action='store_true',default=False,
         help='simple list of computed coefficients')
-    parser.add_argument('--zrange',nargs=3, type=float,default=[0,0.0,0.0],
-        help='Depth range to fit functions and plot. Expected 0/1 zmin zmax values. dfv= 0 0 0')
     parser.add_argument('--listdatain',action='store_true',default=False,help='List input data')
     parser.add_argument('--listdt',action='store_true',default=False,help='List d t data')
     parser.add_argument('--hideplot',action='store_true',default=False,
@@ -231,12 +239,13 @@ def main():
 
         # zi = np.polyval(tzcoef,ti)
         zpinsonic['ZQ'] = np.polyval(tzcoef,zpinsonic['T1W'])
-        print(f'Z = {tzcoef[2]:.2f} + {tzcoef[1]:.2f} * T1W + {tzcoef[0]:.2f} * T1w^2')
+        print('Full Depth Range: ')
+        print(f'Z = {tzcoef[2]:.2f} + {tzcoef[1]:.2f} * T1W + {tzcoef[0]:.2f} * T1W^2')
 
         p0 = np.array(tzcoef)
         plsq = leastsq(residuals,p0,args=(zpinsonic['Z'],zpinsonic['T1W']), maxfev=2000)
         zpinsonic['ZQLSQ'] = np.polyval(plsq[0],zpinsonic['T1W'])
-        print(f'Z = {plsq[0][2]:.2f} + {plsq[0][1]:.2f} * T1W + {plsq[0][0]:.2f} * T1w^2')
+        print(f'Z = {plsq[0][2]:.2f} + {plsq[0][1]:.2f} * T1W + {plsq[0][0]:.2f} * T1W^2')
 
         zvicoef = np.polyfit(zpinsonic['Z'],zpinsonic['VI'],1)
         zpinsonic['VILWZ'] = np.polyval(zvicoef,zpinsonic['Z'])
@@ -245,6 +254,28 @@ def main():
 
         if cmdl.zrange[0]:
             zpinsonicx = zpinsonic[(zpinsonic['Z'] >= cmdl.zrange[1]) & (zpinsonic['Z'] <= cmdl.zrange[2])]
+            tzcoefx = np.polyfit(zpinsonicx['T1W'],zpinsonicx['Z'],2)
+
+            # zi = np.polyval(tzcoef,ti)
+            zpinsonicx['ZQ'] = np.polyval(tzcoefx,zpinsonicx['T1W'])
+            print('Selected Depth Range: ')
+            print(f'Z = {tzcoefx[2]:.2f} + {tzcoefx[1]:.2f} * T1W + {tzcoefx[0]:.2f} * T1W^2')
+
+            p0x = np.array(tzcoefx)
+            plsqx = leastsq(residuals,p0x,args=(zpinsonicx['Z'],zpinsonicx['T1W']), maxfev=2000)
+            zpinsonicx['ZQLSQ'] = np.polyval(plsqx[0],zpinsonicx['T1W'])
+            print(f'Z = {plsqx[0][2]:.2f} + {plsqx[0][1]:.2f} * T1W + {plsqx[0][0]:.2f} * T1W^2')
+            tzcfr  = tzcoef / tzcoefx
+            plsqr = plsq[0][:2] / plsqx[0][:2]
+            print(f'\n\nQuadratic coef correction ratio: {tzcfr}')
+            print(f'Quadratic coef Least Square correction ratio: {plsqr}')
+
+            zvicoefx = np.polyfit(zpinsonicx['Z'],zpinsonicx['VI'],1)
+            zpinsonicx['VILWZ'] = np.polyval(zvicoefx,zpinsonicx['Z'])
+            print(f'VINST = {zvicoefx[1]:.2f} + {zvicoefx[0]:.2f} * Z')
+            zpinsonic['ZLWZ'] = t2d_lwz(zvicoefx[1],zvicoefx[0],zpinsonicx['T1W'])
+
+
             pltfname = fname + f'{cmdl.zrange[1]:.0f}_{cmdl.zrange[2]:.0f}' + 'slw'
             plot_df(zpinsonicx,dirsplit,pltfname,cmdl.wellname,cmdl.hideplot)
             ztfname = fname + f'{cmdl.zrange[1]:.0f}_{cmdl.zrange[2]:.0f}_ztvix.csv'
@@ -273,12 +304,28 @@ def main():
 
         # zi = np.polyval(tzcoef,ti)
         zpin['ZQ'] = np.polyval(tzcoef,zpin['T1W'])
-        print(f'Z = {tzcoef[2]:.2f} + {tzcoef[1]:.2f} * T1W + {tzcoef[0]:.2f} * T1w^2')
+        print('Full Depth Range: ')
+        print(f'Z = {tzcoef[2]:.2f} + {tzcoef[1]:.2f} * T1W + {tzcoef[0]:.2f} * T1W^2')
 
         p0 = np.array(tzcoef)
         plsq = leastsq(residuals,p0,args=(zpin['Z'],zpin['T1W']), maxfev=2000)
         zpin['ZQLSQ'] = np.polyval(plsq[0],zpin['T1W'])
-        print(f'Z = {plsq[0][2]:.2f} + {plsq[0][1]:.2f} * T1W + {plsq[0][0]:.2f} * T1w^2')
+        print(f'Z = {plsq[0][2]:.2f} + {plsq[0][1]:.2f} * T1W + {plsq[0][0]:.2f} * T1W^2')
+        if cmdl.qcfcorrection[0] == 0:
+            print('No quadratic correction to apply')
+        if cmdl.qcfcorrection[0] == 1:
+            plsqa = plsq[0][:2] * cmdl.qcfcorrection[1:3]
+            plsq[0][:2] = plsqa
+            # only a2 and a1, a0 is zero
+            print('Adjusted Quadratic  Least squares Coefs:')
+            print(f'Z = {plsq[0][2]:.2f} + {plsq[0][1]:.2f} * T1W + {plsq[0][0]:.2f} * T1W^2')
+
+        if cmdl.qcfcorrection[0] == 2:
+            tzcoefa = tzcoef[0][:3] * cmdl.qcfcorrection[1:4]
+            tzcoef[0][:3] = tzcoefa
+            # a2, a1, and a0
+            print('Adjusted Quadratic Coefs:')
+            print(f'Z = {tzcoef[0][2]:.2f} + {tzcoef[0][1]:.2f} * T1W + {tzcoef[0][0]:.2f} * T1W^2')
 
         zvicoef = np.polyfit(zpin['Z'],zpin['VI'],1)
         zpin['VILWZ'] = np.polyval(zvicoef,zpin['Z'])
@@ -288,7 +335,29 @@ def main():
         zpin['ZLWZ'] = t2d_lwz(zvicoef[1],zvicoef[0],zpin['T1W'])
 
         if cmdl.zrange[0]:
-            zpinx = zpin[(zpin['Z'] >= cmdl.zrange[1]) & (zpin['Z'] <= cmdl.zrange[2])]
+            zpinx = zpin[(zpin['Z'] >= cmdl.zrange[1]) & (zpin['Z'] <= cmdl.zrange[2])].copy()
+            tzcoefx = np.polyfit(zpinx['T1W'],zpinx['Z'],2)
+
+            # zi = np.polyval(tzcoef,ti)
+            zpinx['ZQ'] = np.polyval(tzcoefx,zpinx['T1W'])
+            print('Selected Depth Range: ')
+            print(f'Z = {tzcoefx[2]:.2f} + {tzcoefx[1]:.2f} * T1W + {tzcoefx[0]:.2f} * T1W^2')
+
+            p0x = np.array(tzcoefx)
+            plsqx = leastsq(residuals,p0x,args=(zpinx['Z'],zpinx['T1W']), maxfev=2000)
+            zpinx['ZQLSQ'] = np.polyval(plsqx[0],zpinx['T1W'])
+            print(f'Z = {plsqx[0][2]:.2f} + {plsqx[0][1]:.2f} * T1W + {plsqx[0][0]:.2f} * T1W^2')
+            tzcfr  = tzcoef / tzcoefx
+            plsqr = plsq[0][:2] / plsqx[0][:2]
+            print(f'\n\nQuadratic coef correction ratio: {tzcfr}')
+            print(f'Quadratic coef Least Square correction ratio: {plsqr}')
+
+            zvicoefx = np.polyfit(zpinx['Z'],zpinx['VI'],1)
+            zpinx['VILWZ'] = np.polyval(zvicoefx,zpinx['Z'])
+            print(f'VINST = {zvicoefx[1]:.2f} + {zvicoefx[0]:.2f} * Z')
+            # plot_df(zpin,dirsplit,fname,cmdl.hideplot)
+
+            zpinx['ZLWZ'] = t2d_lwz(zvicoefx[1],zvicoefx[0],zpinx['T1W'])
             pltfname = fname + f'{cmdl.zrange[1]:.0f}_{cmdl.zrange[2]:.0f}' + 'td'
             plot_df(zpinx,dirsplit,pltfname,cmdl.wellname,cmdl.hideplot)
             ztfname = fname + f'{cmdl.zrange[1]:.0f}_{cmdl.zrange[2]:.0f}_ztvix.csv'
@@ -305,14 +374,25 @@ def main():
         fo = open(cfname,'a+')
         headlist = ['Well','X','Y','QA0','QA1','QA2','LSQRQA0','LSQRQA1','LSQRQA2']
         print(','.join(headlist),file=fo)
-        cflist = [f'{cmdl.wellname}',f'{cmdl.xycoords[0]:.2f}',f'{cmdl.xycoords[1]:.2f}',f'{tzcoef[2]:.2f}',
-        f'{tzcoef[1]:.2f}',f'{tzcoef[0]:.2f}',f'{plsq[0][2]:.2f}',f'{plsq[0][1]:.2f}',f'{plsq[0][0]:.2f}']
-        print(','.join(cflist),file=fo)
+        if cmdl.zrange[0]:
+            cflist = [f'{cmdl.wellname}',f'{cmdl.xycoords[0]:.2f}',f'{cmdl.xycoords[1]:.2f}',f'{tzcoefx[2]:.2f}',
+            f'{tzcoefx[1]:.2f}',f'{tzcoefx[0]:.2f}',f'{plsqx[0][2]:.2f}',f'{plsqx[0][1]:.2f}',f'{plsqx[0][0]:.2f}']
+            print(','.join(cflist),file=fo)
+        else:
+            cflist = [f'{cmdl.wellname}',f'{cmdl.xycoords[0]:.2f}',f'{cmdl.xycoords[1]:.2f}',f'{tzcoef[2]:.2f}',
+            f'{tzcoef[1]:.2f}',f'{tzcoef[0]:.2f}',f'{plsq[0][2]:.2f}',f'{plsq[0][1]:.2f}',f'{plsq[0][0]:.2f}']
+            print(','.join(cflist),file=fo)
+
     else:
         fo = open(cfname,'a+')
-        cflist = [f'{cmdl.wellname}',f'{cmdl.xycoords[0]:.2f}',f'{cmdl.xycoords[1]:.2f}',f'{tzcoef[2]:.2f}',
-        f'{tzcoef[1]:.2f}',f'{tzcoef[0]:.2f}',f'{plsq[0][2]:.2f}',f'{plsq[0][1]:.2f}',f'{plsq[0][0]:.2f}']
-        print(','.join(cflist),file=fo)
+        if cmdl.zrange[0]:
+            cflist = [f'{cmdl.wellname}',f'{cmdl.xycoords[0]:.2f}',f'{cmdl.xycoords[1]:.2f}',f'{tzcoefx[2]:.2f}',
+            f'{tzcoefx[1]:.2f}',f'{tzcoefx[0]:.2f}',f'{plsqx[0][2]:.2f}',f'{plsqx[0][1]:.2f}',f'{plsqx[0][0]:.2f}']
+            print(','.join(cflist),file=fo)
+        else:
+            cflist = [f'{cmdl.wellname}',f'{cmdl.xycoords[0]:.2f}',f'{cmdl.xycoords[1]:.2f}',f'{tzcoef[2]:.2f}',
+            f'{tzcoef[1]:.2f}',f'{tzcoef[0]:.2f}',f'{plsq[0][2]:.2f}',f'{plsq[0][1]:.2f}',f'{plsq[0][0]:.2f}']
+            print(','.join(cflist),file=fo)
 
     fo.close()
     print(f'Successfully wrote to {cfname}')
