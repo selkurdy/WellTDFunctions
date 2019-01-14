@@ -223,7 +223,11 @@ def main():
     cfname = 'allcoef.csv'
 
     if cmdl.slowness:
-        zpinsonic = pd.read_csv(cmdl.datafilename,usecols=cmdl.dtcols,header=0,names=['Z','DTC'],
+        if cmdl.dtcols[0] == 0:
+            dtcolnames = ['Z','DTC']
+        else:
+            dtcolnames = ['DTC','Z']
+        zpinsonic = pd.read_csv(cmdl.datafilename,usecols=cmdl.dtcols,header=0,names=dtcolnames,
             delim_whitespace=True,skiprows=cmdl.headerlines,na_values=float(cmdl.nulval))
         zpinsonic.dropna(inplace=True)
         zpinsonic.reset_index(drop=True, inplace=True)
@@ -290,7 +294,11 @@ def main():
 
     else:
         # input data is depth one (or two) way time -> TDR
-        zpin = pd.read_csv(cmdl.datafilename,usecols=cmdl.dtcols,header=0,names=['Z','T1W'],
+        if cmdl.dtcols[0] == 0:
+            dtcolnames = ['Z','T1W']
+        else:
+            dtcolnames = ['T1W','Z']
+        zpin = pd.read_csv(cmdl.datafilename,usecols=cmdl.dtcols,header=0,names=dtcolnames,
                 delim_whitespace=True,skiprows=cmdl.headerlines,na_values=float(cmdl.nulval))
         zpin['Z'] *= cmdl.dtmultiplier[0]
         zpin['T1W'] *= cmdl.dtmultiplier[1]
